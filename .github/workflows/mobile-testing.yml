@@ -1,0 +1,438 @@
+name: Mobile Testing & PWA Validation
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run daily at 2 AM UTC for continuous mobile performance monitoring
+    - cron: '0 2 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mobile-device-testing:
+    name: Mobile Device Testing
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        device:
+          - name: "iPhone 12"
+            width: 390
+            height: 844
+            pixelRatio: 3
+            userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
+          - name: "Galaxy S20"
+            width: 360
+            height: 800
+            pixelRatio: 3
+            userAgent: "Mozilla/5.0 (Linux; Android 11; SM-G980F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Mobile Safari/537.36"
+          - name: "iPhone 8"
+            width: 375
+            height: 667
+            pixelRatio: 2
+            userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
+          - name: "iPad Air"
+            width: 820
+            height: 1180
+            pixelRatio: 2
+            userAgent: "Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Start application
+        run: |
+          npm start &
+          sleep 10
+          curl -f http://localhost:3000 || exit 1
+        env:
+          PORT: 3000
+
+      - name: Mobile Device Testing - ${{ matrix.device.name }}
+        run: |
+          npx playwright install chromium
+          node scripts/mobile-device-test.js \
+            --device="${{ matrix.device.name }}" \
+            --width=${{ matrix.device.width }} \
+            --height=${{ matrix.device.height }} \
+            --pixelRatio=${{ matrix.device.pixelRatio }} \
+            --userAgent="${{ matrix.device.userAgent }}"
+
+      - name: Upload mobile test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobile-test-results-${{ matrix.device.name }}
+          path: |
+            mobile-test-results/
+            screenshots/
+          retention-days: 7
+
+  network-simulation-testing:
+    name: Network Simulation Testing
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        network:
+          - name: "3G Fast"
+            rtt: 150
+            throughput: 1600
+            cpu: 4
+          - name: "3G Slow"
+            rtt: 300
+            throughput: 400
+            cpu: 4
+          - name: "4G"
+            rtt: 70
+            throughput: 10000
+            cpu: 2
+          - name: "Edge"
+            rtt: 840
+            throughput: 240
+            cpu: 8
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Install Lighthouse CLI
+        run: npm install -g @lhci/cli@0.13.x lighthouse
+
+      - name: Start application
+        run: |
+          npm start &
+          sleep 10
+
+      - name: Run Lighthouse with ${{ matrix.network.name }} simulation
+        run: |
+          lighthouse http://localhost:3000 \
+            --preset=perf \
+            --emulated-form-factor=mobile \
+            --throttling-method=devtools \
+            --throttling.rttMs=${{ matrix.network.rtt }} \
+            --throttling.throughputKbps=${{ matrix.network.throughput }} \
+            --throttling.cpuSlowdownMultiplier=${{ matrix.network.cpu }} \
+            --output=json \
+            --output-path=./lighthouse-${{ matrix.network.name }}.json
+
+      - name: Validate performance targets
+        run: |
+          node scripts/validate-performance.js \
+            --report=./lighthouse-${{ matrix.network.name }}.json \
+            --network="${{ matrix.network.name }}" \
+            --maxLCP=2500 \
+            --maxTTI=3000
+
+      - name: Upload network test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: network-test-${{ matrix.network.name }}
+          path: |
+            lighthouse-*.json
+            performance-report-*.html
+          retention-days: 7
+
+  responsive-design-validation:
+    name: Responsive Design Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application
+        run: |
+          npm start &
+          sleep 10
+
+      - name: Install Playwright
+        run: npx playwright install
+
+      - name: Run responsive design tests
+        run: |
+          node scripts/responsive-design-test.js \
+            --url=http://localhost:3000 \
+            --breakpoints="320,375,414,768,1024,1440" \
+            --pages="/,/login,/admin,/exchange"
+
+      - name: Upload responsive test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: responsive-design-results
+          path: |
+            responsive-screenshots/
+            responsive-report.html
+          retention-days: 7
+
+  mobile-accessibility-testing:
+    name: Mobile Accessibility Testing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application
+        run: |
+          npm start &
+          sleep 10
+
+      - name: Install axe-core CLI
+        run: npm install -g @axe-core/cli
+
+      - name: Run mobile accessibility audit
+        run: |
+          axe http://localhost:3000 \
+            --chromedriver-path=/usr/bin/chromedriver \
+            --viewport-width=375 \
+            --viewport-height=667 \
+            --mobile \
+            --save accessibility-report.json \
+            --exit
+
+      - name: Validate accessibility requirements
+        run: |
+          node scripts/validate-accessibility.js \
+            --report=accessibility-report.json \
+            --minScore=95
+
+      - name: Upload accessibility results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: accessibility-test-results
+          path: |
+            accessibility-report.json
+            accessibility-report.html
+          retention-days: 7
+
+  pwa-validation:
+    name: PWA Validation & Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application
+        run: |
+          npm start &
+          sleep 10
+
+      - name: Install PWA testing tools
+        run: |
+          npm install -g lighthouse pwa-asset-generator
+          npx playwright install chromium
+
+      - name: Validate PWA manifest
+        run: |
+          node scripts/validate-pwa-manifest.js \
+            --url=http://localhost:3000/manifest.json
+
+      - name: Run PWA audit with Lighthouse
+        run: |
+          lighthouse http://localhost:3000 \
+            --preset=perf \
+            --emulated-form-factor=mobile \
+            --only-categories=pwa \
+            --output=json \
+            --output-path=./pwa-audit.json
+
+      - name: Test PWA installability
+        run: |
+          node scripts/test-pwa-install.js \
+            --url=http://localhost:3000
+
+      - name: Test offline functionality
+        run: |
+          node scripts/test-offline.js \
+            --url=http://localhost:3000
+
+      - name: Validate PWA requirements
+        run: |
+          node scripts/validate-pwa.js \
+            --report=./pwa-audit.json \
+            --minScore=90
+
+      - name: Upload PWA validation results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pwa-validation-results
+          path: |
+            pwa-audit.json
+            pwa-install-test.json
+            offline-test-results.json
+            manifest-validation.json
+          retention-days: 7
+
+  browserstack-testing:
+    name: Real Device Testing (BrowserStack)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start local tunnel for BrowserStack
+        run: |
+          npx browserstack-local --key ${{ secrets.BROWSERSTACK_ACCESS_KEY }} --daemon start
+          npm start &
+          sleep 10
+
+      - name: Run BrowserStack tests
+        run: |
+          node scripts/browserstack-mobile-test.js
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+
+      - name: Stop local tunnel
+        if: always()
+        run: |
+          npx browserstack-local --key ${{ secrets.BROWSERSTACK_ACCESS_KEY }} --daemon stop
+
+      - name: Upload BrowserStack results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browserstack-test-results
+          path: |
+            browserstack-results/
+            test-reports/
+          retention-days: 7
+
+  mobile-testing-summary:
+    name: Mobile Testing Summary
+    runs-on: ubuntu-latest
+    needs: [mobile-device-testing, network-simulation-testing, responsive-design-validation, mobile-accessibility-testing, pwa-validation]
+    if: always()
+    steps:
+      - name: Download all test artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Generate mobile testing report
+        run: |
+          node scripts/generate-mobile-report.js \
+            --artifacts-path=./ \
+            --output=mobile-testing-summary.html
+
+      - name: Upload consolidated report
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-testing-summary
+          path: |
+            mobile-testing-summary.html
+            mobile-testing-summary.json
+          retention-days: 30
+
+      - name: Comment PR with mobile test results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('mobile-testing-summary.json', 'utf8'));
+            
+            const comment = `## 📱 Mobile Testing Results
+            
+            | Test Category | Status | Score | Details |
+            |---------------|--------|-------|---------|
+            | Device Testing | ${report.deviceTesting.status} | ${report.deviceTesting.score}/100 | ${report.deviceTesting.details} |
+            | Network Performance | ${report.networkPerformance.status} | ${report.networkPerformance.score}/100 | ${report.networkPerformance.details} |
+            | Responsive Design | ${report.responsiveDesign.status} | ${report.responsiveDesign.score}/100 | ${report.responsiveDesign.details} |
+            | Accessibility | ${report.accessibility.status} | ${report.accessibility.score}/100 | ${report.accessibility.details} |
+            | PWA Validation | ${report.pwa.status} | ${report.pwa.score}/100 | ${report.pwa.details} |
+            
+            ### Performance Targets 🎯
+            - **LCP Target**: < 2.5s ${report.performance.lcp < 2500 ? '✅' : '❌'} (${report.performance.lcp}ms)
+            - **TTI Target**: < 3.0s ${report.performance.tti < 3000 ? '✅' : '❌'} (${report.performance.tti}ms)
+            - **Bundle Size**: ${report.performance.bundleSize} ${report.performance.bundleSize < 100 ? '✅' : '❌'}
+            
+            [View detailed report](${report.reportUrl})
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            }); 
