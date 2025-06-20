@@ -1,0 +1,61 @@
+# <type>(<scope>): <subject>
+#
+# <body>
+#
+# <footer>
+#
+# --- COMMIT MESSAGE GUIDELINES ---
+# Type: Choose one of the following:
+#   feat:     A new feature
+#   fix:      A bug fix
+#   docs:     Documentation only changes
+#   style:    Changes that do not affect the meaning of the code
+#   refactor: A code change that neither fixes a bug nor adds a feature
+#   perf:     A code change that improves performance
+#   test:     Adding missing tests or correcting existing tests
+#   chore:    Changes to build process or auxiliary tools
+#   security: Security-related changes (critical priority)
+#   ci:       Changes to CI configuration files and scripts
+#
+# Scope: The area of the codebase affected (optional):
+#   auth, api, ui, db, config, security, payment, firebase, etc.
+#
+# Subject: Imperative mood, no period, max 50 characters
+#   ✅ "Add user authentication middleware"
+#   ❌ "Added user authentication middleware."
+#
+# Body: Explain what and why, max 72 characters per line
+#   - What changes were made?
+#   - Why were these changes necessary?
+#   - Any important implementation details?
+#
+# Footer: Breaking changes, issues closed, security notes
+#   BREAKING CHANGE: Description of breaking change
+#   Closes #123, #456
+#   Security: Addresses CVE-2023-XXXX
+#   Fixes: Resolves security vulnerability in auth system
+#
+# --- SECURITY COMMIT GUIDELINES ---
+# For security-related commits, please include:
+# 1. Clear description of the security issue addressed
+# 2. Reference to any security advisories or CVEs
+# 3. Impact assessment (low/medium/high/critical)
+# 4. Testing performed to verify the fix
+#
+# Example security commit:
+# security(auth): fix JWT token validation vulnerability
+#
+# Properly validate JWT signatures to prevent token forgery attacks.
+# Added comprehensive input validation and signature verification.
+#
+# Security: Addresses potential authentication bypass (HIGH impact)
+# Tested: Verified with security test suite and manual penetration testing
+# Closes #456
+#
+# --- REMINDER ---
+# Before committing, ensure:
+# ✅ No secrets or credentials in code
+# ✅ Security tests pass
+# ✅ Code reviewed for security implications
+# ✅ Dependencies are up to date
+# ✅ Pre-commit hooks pass 

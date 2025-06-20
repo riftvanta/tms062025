@@ -1,0 +1,203 @@
+# Security-Focused Dockerfile for TMS Financial System
+# This Dockerfile follows security best practices including:
+# - Non-root user execution
+# - Minimal attack surface
+# - Security scanning integration
+# - Hardened configuration
+
+# Use official Node.js LTS version with Alpine for minimal attack surface
+FROM node:18-alpine AS base
+
+# Set security labels
+LABEL maintainer="security@tms-system.com"
+LABEL version="1.0.0"
+LABEL description="Financial Transfer Management System - Security Hardened"
+LABEL security.scan="enabled"
+
+# Install security updates and essential packages only
+RUN apk update && apk upgrade && \
+    apk add --no-cache \
+    dumb-init \
+    curl \
+    ca-certificates && \
+    rm -rf /var/cache/apk/*
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001 -G nodejs
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files for dependency installation
+COPY package*.json ./
+COPY yarn.lock* ./
+
+# Install dependencies as root, then switch to non-root user
+RUN npm ci --only=production && \
+    npm cache clean --force && \
+    chown -R nextjs:nodejs /app
+
+# Switch to non-root user
+USER nextjs
+
+# Copy application code with proper ownership
+COPY --chown=nextjs:nodejs . .
+
+# Build stage for production
+FROM base AS builder
+
+# Switch back to root for build process
+USER root
+
+# Install dev dependencies for build
+RUN npm ci
+
+# Switch back to non-root user for build
+USER nextjs
+
+# Build the application
+RUN npm run build
+
+# Production stage
+FROM node:18-alpine AS runner
+
+# Security labels for runtime
+LABEL runtime.user="non-root"
+LABEL runtime.capabilities="minimal"
+
+# Install security updates and runtime dependencies only
+RUN apk update && apk upgrade && \
+    apk add --no-cache \
+    dumb-init \
+    curl \
+    ca-certificates && \
+    rm -rf /var/cache/apk/*
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001 -G nodejs
+
+WORKDIR /app
+
+# Copy built application from builder stage
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+
+# Set proper permissions
+RUN chmod -R 755 /app && \
+    chmod -R 644 /app/.next && \
+    chmod -R 644 /app/public
+
+# Switch to non-root user
+USER nextjs
+
+# Expose port (non-privileged)
+EXPOSE 3000
+
+# Set environment variables for security
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+
+# Health check for container monitoring
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:3000/api/health || exit 1
+
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["dumb-init", "--"]
+
+# Start the application
+CMD ["node", "server.js"]
+
+# Security scanning stage
+FROM runner AS security-scan
+
+# Switch to root for security tools installation
+USER root
+
+# Install security scanning tools
+RUN apk add --no-cache \
+    git \
+    python3 \
+    py3-pip && \
+    pip3 install safety bandit
+
+# Copy security scanning scripts
+COPY scripts/security-scan.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/security-scan.sh
+
+# Run security scans
+RUN /usr/local/bin/security-scan.sh
+
+# Switch back to non-root user
+USER nextjs
+
+# Development stage with security tools
+FROM base AS development
+
+# Install development security tools
+USER root
+RUN apk add --no-cache \
+    git \
+    python3 \
+    py3-pip \
+    bash && \
+    pip3 install pre-commit safety bandit
+
+# Install Node.js security tools
+RUN npm install -g \
+    audit-ci \
+    license-checker \
+    dependency-check \
+    npm-check-updates
+
+USER nextjs
+
+# Set development environment
+ENV NODE_ENV=development
+
+# Install all dependencies including dev
+RUN npm ci
+
+# Start development server with security monitoring
+CMD ["npm", "run", "dev"]
+
+# Testing stage with security tests
+FROM development AS testing
+
+# Copy test files
+COPY --chown=nextjs:nodejs tests/ ./tests/
+COPY --chown=nextjs:nodejs jest.config.js ./
+COPY --chown=nextjs:nodejs .eslintrc.json ./
+
+# Run security tests
+RUN npm run test:security && \
+    npm run test:audit && \
+    npm run lint:security
+
+# Final production image
+FROM runner AS production
+
+# Add production-specific security configurations
+ENV NODE_OPTIONS="--max-old-space-size=1024"
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Final security hardening
+USER root
+
+# Remove unnecessary packages and files
+RUN apk del curl && \
+    rm -rf /var/cache/apk/* \
+           /tmp/* \
+           /var/tmp/*
+
+# Set read-only filesystem (except for specific directories)
+RUN chmod 555 /app
+
+USER nextjs
+
+# Production health check
+HEALTHCHECK --interval=60s --timeout=15s --start-period=60s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1 

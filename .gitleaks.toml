@@ -1,0 +1,163 @@
+title = "GitLeaks Configuration for TMS Financial System"
+
+[extend]
+# Extend default rules with custom patterns
+useDefault = true
+
+# Custom rules for financial and Firebase-specific secrets
+[[rules]]
+id = "firebase-api-key"
+description = "Firebase API Key"
+regex = '''AIza[0-9A-Za-z\-_]{35}'''
+keywords = ["firebase", "AIza"]
+tags = ["firebase", "api-key", "secret"]
+
+[[rules]]
+id = "firebase-private-key"
+description = "Firebase Private Key"
+regex = '''-----BEGIN PRIVATE KEY-----[\s\S]*-----END PRIVATE KEY-----'''
+keywords = ["firebase", "private", "key"]
+tags = ["firebase", "private-key", "secret"]
+
+[[rules]]
+id = "firebase-service-account"
+description = "Firebase Service Account Key"
+regex = '''"private_key":\s*"-----BEGIN PRIVATE KEY-----[\s\S]*-----END PRIVATE KEY-----"'''
+keywords = ["firebase", "service_account", "private_key"]
+tags = ["firebase", "service-account", "secret"]
+
+[[rules]]
+id = "jwt-secret"
+description = "JWT Secret Key"
+regex = '''jwt[_-]?secret[_-]?key?[\s]*[:=][\s]*["\']?[a-zA-Z0-9+/=]{32,}["\']?'''
+keywords = ["jwt", "secret", "token"]
+tags = ["jwt", "secret", "authentication"]
+
+[[rules]]
+id = "session-secret"
+description = "Session Secret"
+regex = '''session[_-]?secret[\s]*[:=][\s]*["\']?[a-zA-Z0-9+/=]{32,}["\']?'''
+keywords = ["session", "secret"]
+tags = ["session", "secret", "authentication"]
+
+[[rules]]
+id = "database-url"
+description = "Database Connection URL"
+regex = '''(mongodb|mysql|postgres|redis)://[a-zA-Z0-9\-._~:/?#[\]@!$&'()*+,;=]+'''
+keywords = ["mongodb", "mysql", "postgres", "redis", "database"]
+tags = ["database", "connection", "secret"]
+
+[[rules]]
+id = "bcrypt-hash"
+description = "Bcrypt Hash (potential password leak)"
+regex = '''\$2[aby]?\$[0-9]{2}\$[./A-Za-z0-9]{53}'''
+keywords = ["bcrypt", "hash", "password"]
+tags = ["bcrypt", "password", "hash"]
+
+[[rules]]
+id = "credit-card"
+description = "Credit Card Number"
+regex = '''(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3[0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})'''
+keywords = ["credit", "card", "visa", "mastercard", "amex"]
+tags = ["credit-card", "financial", "pii"]
+
+[[rules]]
+id = "iban"
+description = "International Bank Account Number (IBAN)"
+regex = '''[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{7}([A-Z0-9]?){0,16}'''
+keywords = ["iban", "bank", "account"]
+tags = ["iban", "financial", "banking"]
+
+[[rules]]
+id = "jordan-phone"
+description = "Jordanian Phone Number"
+regex = '''(?:\+962|00962|962)?[0-9\s\-]{8,12}'''
+keywords = ["jordan", "phone", "mobile"]
+tags = ["phone", "pii", "jordan"]
+
+[[rules]]
+id = "encryption-key"
+description = "Encryption Key"
+regex = '''(encryption|crypto)[_-]?key[\s]*[:=][\s]*["\']?[a-zA-Z0-9+/=]{32,}["\']?'''
+keywords = ["encryption", "crypto", "key"]
+tags = ["encryption", "crypto", "secret"]
+
+[[rules]]
+id = "api-secret"
+description = "API Secret"
+regex = '''api[_-]?secret[\s]*[:=][\s]*["\']?[a-zA-Z0-9+/=]{20,}["\']?'''
+keywords = ["api", "secret"]
+tags = ["api", "secret", "authentication"]
+
+[[rules]]
+id = "webhook-secret"
+description = "Webhook Secret"
+regex = '''webhook[_-]?secret[\s]*[:=][\s]*["\']?[a-zA-Z0-9+/=]{20,}["\']?'''
+keywords = ["webhook", "secret"]
+tags = ["webhook", "secret", "integration"]
+
+# File allowlist - exclude these files from scanning
+[[allowlist]]
+description = "Allow example environment files"
+paths = [
+    ".env.example",
+    ".env.sample",
+    ".env.template"
+]
+
+[[allowlist]]
+description = "Allow test files with dummy data"
+paths = [
+    "tests/**",
+    "test/**",
+    "**/*.test.js",
+    "**/*.test.ts",
+    "**/*.spec.js",
+    "**/*.spec.ts"
+]
+
+[[allowlist]]
+description = "Allow documentation and examples"
+paths = [
+    "docs/**",
+    "README.md",
+    "SECURITY.md",
+    "examples/**"
+]
+
+[[allowlist]]
+description = "Allow configuration files"
+paths = [
+    ".gitleaks.toml",
+    ".pre-commit-config.yaml",
+    "package.json",
+    "package-lock.json"
+]
+
+# Regex allowlist - exclude these patterns
+[[allowlist]]
+description = "Allow placeholder Firebase keys in documentation"
+regex = '''AIza[0-9A-Za-z\-_]{35}'''
+paths = [
+    "README.md",
+    "docs/**",
+    ".env.example"
+]
+
+[[allowlist]]
+description = "Allow test JWT tokens"
+regex = '''eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*'''
+paths = [
+    "tests/**",
+    "**/*.test.*",
+    "**/*.spec.*"
+]
+
+[[allowlist]]
+description = "Allow example connection strings"
+regex = '''(mongodb|mysql|postgres|redis)://'''
+paths = [
+    "docs/**",
+    ".env.example",
+    "README.md"
+] 

@@ -1,0 +1,202 @@
+repos:
+  # Security: Secret Detection and Credential Scanning
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.81.9
+    hooks:
+      - id: trufflehog
+        name: 🔍 TruffleHog Secret Detection
+        description: Detect secrets and credentials in code
+        entry: trufflehog filesystem --fail --no-update
+        language: system
+        stages: [commit, push]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+        name: 🔐 GitLeaks Secret Scan
+        description: Detect hardcoded secrets and credentials
+        entry: gitleaks detect --source . --verbose
+        language: system
+        stages: [commit]
+
+  - repo: https://github.com/thoughtworks/talisman
+    rev: v1.32.0
+    hooks:
+      - id: talisman-commit
+        name: 🛡️ Talisman Security Scan
+        description: Detect suspicious patterns and secrets
+        entry: talisman --githook pre-commit
+        language: system
+        stages: [commit]
+
+  # Code Quality and Formatting
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        name: ✂️ Trim Trailing Whitespace
+      - id: end-of-file-fixer
+        name: 📄 Fix End of Files
+      - id: check-yaml
+        name: 📋 Check YAML Syntax
+      - id: check-json
+        name: 🔧 Check JSON Syntax
+      - id: check-toml
+        name: ⚙️ Check TOML Syntax
+      - id: check-merge-conflict
+        name: 🔀 Check for Merge Conflicts
+      - id: check-added-large-files
+        name: 📦 Check for Large Files (>5MB)
+        args: ['--maxkb=5120']
+      - id: check-case-conflict
+        name: 📁 Check for Case Conflicts
+      - id: check-executables-have-shebangs
+        name: 🔨 Check Executable Shebangs
+      - id: check-shebang-scripts-are-executable
+        name: ⚡ Check Shebang Executables
+      - id: detect-private-key
+        name: 🔑 Detect Private Keys
+      - id: forbid-new-submodules
+        name: 🚫 Forbid New Submodules
+
+  # JavaScript/TypeScript/Node.js Security
+  - repo: local
+    hooks:
+      - id: npm-audit
+        name: 🔍 npm Security Audit
+        description: Run npm audit to check for vulnerabilities
+        entry: npm audit --audit-level=moderate
+        language: system
+        files: ^package\.json$
+        stages: [commit]
+
+      - id: yarn-audit
+        name: 🔍 Yarn Security Audit
+        description: Run yarn audit to check for vulnerabilities
+        entry: yarn audit --level moderate
+        language: system
+        files: ^yarn\.lock$
+        stages: [commit]
+        require_serial: true
+
+      - id: license-check
+        name: 📄 License Compliance Check
+        description: Check for license compliance issues
+        entry: bash -c 'npx license-checker --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0" --excludePrivatePackages'
+        language: system
+        files: ^package\.json$
+        stages: [commit]
+
+  # ESLint and Prettier
+  - repo: local
+    hooks:
+      - id: eslint
+        name: 🔍 ESLint Security Check
+        description: Run ESLint with security rules
+        entry: npx eslint --ext .js,.jsx,.ts,.tsx --fix
+        language: system
+        files: \.(js|jsx|ts|tsx)$
+        stages: [commit]
+
+      - id: prettier
+        name: 💅 Prettier Code Formatting
+        description: Format code with Prettier
+        entry: npx prettier --write
+        language: system
+        files: \.(js|jsx|ts|tsx|json|css|scss|md|yml|yaml)$
+        stages: [commit]
+
+      - id: typescript-check
+        name: 🔧 TypeScript Type Check
+        description: Run TypeScript compiler check
+        entry: npx tsc --noEmit
+        language: system
+        files: \.(ts|tsx)$
+        stages: [commit]
+
+  # Security Linting
+  - repo: https://github.com/ajinabraham/semgrep
+    rev: v1.45.0
+    hooks:
+      - id: semgrep
+        name: 🔬 Semgrep SAST Scan
+        description: Static application security testing
+        entry: semgrep --config=auto --error --verbose
+        language: system
+        files: \.(js|jsx|ts|tsx|py|java|go|php|rb|cs)$
+        stages: [commit]
+
+  # Docker Security (if applicable)
+  - repo: local
+    hooks:
+      - id: dockerfile-lint
+        name: 🐳 Dockerfile Security Lint
+        description: Lint Dockerfile for security issues
+        entry: npx dockerfile_lint
+        language: system
+        files: ^Dockerfile.*$
+        stages: [commit]
+
+      - id: docker-security-scan
+        name: 🔒 Docker Security Scan
+        description: Scan Docker images for vulnerabilities
+        entry: bash -c 'if [ -f Dockerfile ]; then docker run --rm -v "$PWD:/app" aquasec/trivy fs /app; fi'
+        language: system
+        files: ^Dockerfile.*$
+        stages: [push]
+
+  # Environment and Configuration Security
+  - repo: local
+    hooks:
+      - id: env-file-check
+        name: 🌍 Environment File Security Check
+        description: Check for sensitive data in env files
+        entry: bash -c 'find . -name "*.env*" -type f -exec grep -l "password\|secret\|key\|token" {} \; | grep -v ".env.example" && exit 1 || exit 0'
+        language: system
+        stages: [commit]
+
+      - id: firebase-config-check
+        name: 🔥 Firebase Config Security Check
+        description: Check Firebase configuration for hardcoded secrets
+        entry: bash -c 'grep -r "AIza[0-9A-Za-z\\-_]{35}" --include="*.js" --include="*.ts" --include="*.jsx" --include="*.tsx" . && echo "⚠️ Hardcoded Firebase API key detected!" && exit 1 || exit 0'
+        language: system
+        stages: [commit]
+
+  # Commit Message Security
+  - repo: local
+    hooks:
+      - id: commit-msg-security-check
+        name: 💬 Commit Message Security Check
+        description: Check commit messages for sensitive information
+        entry: bash -c 'echo "$1" | grep -i -E "(password|secret|key|token|credential)" && echo "⚠️ Sensitive information in commit message!" && exit 1 || exit 0'
+        language: system
+        stages: [commit-msg]
+
+  # File Permission Security
+  - repo: local
+    hooks:
+      - id: file-permissions-check
+        name: 🔐 File Permissions Check
+        description: Check for overly permissive file permissions
+        entry: bash -c 'find . -type f \( -perm -002 -o -perm -020 \) -ls | grep -v ".git" && echo "⚠️ World-writable files detected!" && exit 1 || exit 0'
+        language: system
+        stages: [commit]
+
+# Global Configuration
+default_stages: [commit]
+fail_fast: false
+minimum_pre_commit_version: 3.0.0
+
+# CI Configuration
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit hooks
+
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false 

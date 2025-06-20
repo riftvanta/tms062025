@@ -1,0 +1,77 @@
+# Global Owners - All files require review by default
+* @riftvanta
+
+# Security Critical Files - Require security team review
+SECURITY.md @riftvanta @security-team
+.github/workflows/security.yml @riftvanta @security-team
+.pre-commit-config.yaml @riftvanta @security-team
+.github/dependabot.yml @riftvanta @security-team
+
+# CI/CD Pipeline - Require DevOps and security review
+.github/workflows/ @riftvanta @security-team
+.github/actions/ @riftvanta @security-team
+.lighthouserc.json @riftvanta
+
+# Firebase Security Rules - Critical security component
+firebase.json @riftvanta @security-team
+firestore.rules @riftvanta @security-team
+storage.rules @riftvanta @security-team
+
+# Authentication and Authorization
+/lib/auth/ @riftvanta @security-team
+/lib/security/ @riftvanta @security-team
+/middleware/auth.ts @riftvanta @security-team
+/middleware/security.ts @riftvanta @security-team
+
+# API Routes - Sensitive endpoints
+/app/api/ @riftvanta @security-team
+/pages/api/ @riftvanta @security-team
+
+# Configuration Files
+next.config.js @riftvanta @security-team
+.env.example @riftvanta @security-team
+package.json @riftvanta @security-team
+package-lock.json @riftvanta
+
+# Database and Data Models
+/lib/db/ @riftvanta @security-team
+/lib/models/ @riftvanta @security-team
+/types/database.ts @riftvanta @security-team
+
+# Financial and Payment Processing
+/lib/payment/ @riftvanta @security-team @finance-team
+/components/payment/ @riftvanta @security-team @finance-team
+/app/orders/ @riftvanta @security-team @finance-team
+
+# Documentation
+README.md @riftvanta
+SECURITY.md @riftvanta @security-team
+docs/ @riftvanta
+*.md @riftvanta
+
+# Docker and Infrastructure
+Dockerfile @riftvanta @security-team
+docker-compose.yml @riftvanta @security-team
+.dockerignore @riftvanta @security-team
+
+# Testing - Security tests require security team review
+/tests/security/ @riftvanta @security-team
+/tests/auth/ @riftvanta @security-team
+**/*.security.test.ts @riftvanta @security-team
+**/*.security.spec.ts @riftvanta @security-team
+
+# Frontend Security Components
+/components/auth/ @riftvanta @security-team
+/components/security/ @riftvanta @security-team
+/hooks/useAuth.ts @riftvanta @security-team
+/contexts/AuthContext.tsx @riftvanta @security-team
+
+# Mobile and PWA Configuration
+/public/manifest.json @riftvanta
+/public/sw.js @riftvanta
+workbox-config.js @riftvanta
+
+# Backup and Recovery
+backup/ @riftvanta @security-team
+scripts/backup/ @riftvanta @security-team
+scripts/restore/ @riftvanta @security-team 

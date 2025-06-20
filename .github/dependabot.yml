@@ -1,0 +1,141 @@
+version: 2
+updates:
+  # Enable version updates for npm (Node.js dependencies)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "03:00"
+      timezone: "Asia/Amman"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "riftvanta"
+    assignees:
+      - "riftvanta"
+    commit-message:
+      prefix: "fix"
+      prefix-development: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "security"
+      - "automerge"
+    # Security updates configuration
+    allow:
+      - dependency-type: "direct"
+      - dependency-type: "indirect"
+    # Prioritize security updates
+    groups:
+      security-patches:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+        priority: 1
+      minor-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+        priority: 2
+      major-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+        priority: 3
+    # Auto-merge configuration for security patches
+    auto-merge:
+      enabled: true
+      merge-method: "merge"
+      delete-branch: true
+      # Only auto-merge security patches and patch updates
+      allowed-update-types:
+        - "security"
+        - "patch"
+
+  # Enable version updates for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "03:00"
+      timezone: "Asia/Amman"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "riftvanta"
+    assignees:
+      - "riftvanta"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "ci"
+      - "github-actions"
+      - "dependencies"
+    # Security updates for actions
+    allow:
+      - dependency-type: "direct"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    auto-merge:
+      enabled: true
+      merge-method: "merge"
+      delete-branch: true
+      allowed-update-types:
+        - "patch"
+        - "minor"
+
+  # Enable version updates for Docker (if applicable)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "04:00"
+      timezone: "Asia/Amman"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "riftvanta"
+    assignees:
+      - "riftvanta"
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+    labels:
+      - "docker"
+      - "dependencies"
+      - "security"
+
+  # Security-only updates for production dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "06:00"
+      timezone: "Asia/Amman"
+    open-pull-requests-limit: 20
+    reviewers:
+      - "riftvanta"
+    assignees:
+      - "riftvanta"
+    commit-message:
+      prefix: "security"
+      include: "scope"
+    labels:
+      - "security"
+      - "critical"
+      - "automerge"
+    # Only security updates
+    allow:
+      - dependency-type: "direct"
+        update-types: ["security"]
+      - dependency-type: "indirect"
+        update-types: ["security"]
+    auto-merge:
+      enabled: true
+      merge-method: "merge"
+      delete-branch: true 
