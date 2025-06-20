@@ -1,0 +1,322 @@
+name: ⚡ Performance Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run weekly on Sundays at 3 AM UTC
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+jobs:
+  lighthouse-ci:
+    name: 🔍 Lighthouse CI Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID }}
+
+      - name: 🌐 Start production server
+        run: npm start &
+        env:
+          PORT: 3000
+
+      - name: ⏳ Wait for server
+        run: npx wait-on http://localhost:3000 --timeout 60000
+
+      - name: 📱 Run mobile Lighthouse audit
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          configPath: './.lighthouserc.json'
+          temporaryPublicStorage: true
+          runs: 3
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+
+      - name: 📊 Upload Lighthouse reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-reports
+          path: |
+            .lighthouseci/
+            lighthouse-reports/
+          retention-days: 7
+
+  mobile-performance:
+    name: 📱 Mobile Performance Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      matrix:
+        device: ['iPhone 12', 'Pixel 5', 'Samsung Galaxy S21']
+        network: ['3G', '4G', 'WiFi']
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: 🌐 Start server
+        run: npm start &
+        env:
+          PORT: 3000
+
+      - name: ⏳ Wait for server
+        run: npx wait-on http://localhost:3000
+
+      - name: 🎭 Install Playwright with mobile browsers
+        run: npx playwright install --with-deps
+
+      - name: 📱 Run mobile performance tests
+        run: |
+          npm run test:performance:mobile -- --device="${{ matrix.device }}" --network="${{ matrix.network }}"
+        env:
+          DEVICE: ${{ matrix.device }}
+          NETWORK: ${{ matrix.network }}
+
+      - name: 📊 Upload mobile performance results
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-performance-${{ matrix.device }}-${{ matrix.network }}
+          path: |
+            performance-results/
+            test-results/
+          retention-days: 7
+
+  bundle-analysis:
+    name: 📦 Bundle Size Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build with bundle analysis
+        run: npm run build:analyze
+        env:
+          NODE_ENV: production
+
+      - name: 📊 Bundle size check
+        run: |
+          npm run bundle:check
+          npm run bundle:report
+
+      - name: 📈 Upload bundle analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-analysis
+          path: |
+            .next/analyze/
+            bundle-report.json
+          retention-days: 7
+
+      - name: 💬 Comment bundle size on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            try {
+              const reportPath = path.join(process.cwd(), 'bundle-report.json');
+              const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+              
+              const comment = `
+              ## 📦 Bundle Size Report
+              
+              | Metric | Size | Target | Status |
+              |--------|------|--------|--------|
+              | First Load JS | ${report.firstLoadJS} | < 100KB | ${report.firstLoadJS < 100 ? '✅' : '❌'} |
+              | Main Bundle | ${report.mainBundle} | < 50KB | ${report.mainBundle < 50 ? '✅' : '❌'} |
+              | Total Size | ${report.totalSize} | < 1MB | ${report.totalSize < 1024 ? '✅' : '❌'} |
+              
+              View detailed analysis in the [bundle analyzer report](${report.analyzerUrl}).
+              `;
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            } catch (error) {
+              console.log('Bundle report not found or invalid');
+            }
+
+  web-vitals:
+    name: 🌐 Web Vitals Monitoring
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: 🌐 Start server
+        run: npm start &
+        env:
+          PORT: 3000
+
+      - name: ⏳ Wait for server
+        run: npx wait-on http://localhost:3000
+
+      - name: 📊 Measure Web Vitals
+        run: |
+          npm run test:web-vitals
+          npm run test:core-web-vitals
+
+      - name: 📈 Upload Web Vitals results
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-vitals-results
+          path: |
+            web-vitals-report.json
+            core-web-vitals-report.json
+          retention-days: 7
+
+  performance-regression:
+    name: 🔍 Performance Regression Detection
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🔍 Run performance regression tests
+        run: |
+          npm run test:performance:regression
+          npm run test:performance:compare
+
+      - name: 💬 Comment performance regression results
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            try {
+              const reportPath = path.join(process.cwd(), 'performance-regression-report.json');
+              const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+              
+              const comment = `
+              ## ⚡ Performance Regression Report
+              
+              | Metric | Before | After | Change | Status |
+              |--------|--------|-------|--------|--------|
+              | LCP | ${report.before.lcp}s | ${report.after.lcp}s | ${report.change.lcp} | ${report.status.lcp} |
+              | FID | ${report.before.fid}ms | ${report.after.fid}ms | ${report.change.fid} | ${report.status.fid} |
+              | CLS | ${report.before.cls} | ${report.after.cls} | ${report.change.cls} | ${report.status.cls} |
+              | TTI | ${report.before.tti}s | ${report.after.tti}s | ${report.change.tti} | ${report.status.tti} |
+              
+              ${report.summary}
+              `;
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            } catch (error) {
+              console.log('Performance regression report not found');
+            }
+
+  notification:
+    name: 📢 Performance Notification
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [lighthouse-ci, mobile-performance, bundle-analysis, web-vitals]
+
+    steps:
+      - name: 📊 Performance summary
+        run: |
+          echo "⚡ Performance Test Results:"
+          echo "Lighthouse CI: ${{ needs.lighthouse-ci.result }}"
+          echo "Mobile Performance: ${{ needs.mobile-performance.result }}"
+          echo "Bundle Analysis: ${{ needs.bundle-analysis.result }}"
+          echo "Web Vitals: ${{ needs.web-vitals.result }}"
+
+      - name: 🚨 Alert on performance degradation
+        if: ${{ needs.lighthouse-ci.result == 'failure' || needs.bundle-analysis.result == 'failure' }}
+        run: |
+          echo "🚨 PERFORMANCE ISSUES DETECTED!"
+          echo "Performance metrics are below target thresholds."
+          echo "Please review the performance reports and optimize accordingly."
+          exit 1 

@@ -1,0 +1,310 @@
+name: 🚀 Firebase Deployment
+
+on:
+  push:
+    branches: [ main, develop ]
+  release:
+    types: [ published ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+        - development
+        - staging
+        - production
+
+concurrency:
+  group: deploy-${{ github.ref }}-${{ github.event.inputs.environment || 'auto' }}
+  cancel-in-progress: false
+
+jobs:
+  determine-environment:
+    name: 🎯 Determine Deployment Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      firebase-project: ${{ steps.env.outputs.firebase-project }}
+      deploy-url: ${{ steps.env.outputs.deploy-url }}
+
+    steps:
+      - name: 🎯 Set environment based on trigger
+        id: env
+        run: |
+          if [ "${{ github.event.inputs.environment }}" != "" ]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" == "refs/heads/develop" ]; then
+            echo "environment=development" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "release" ]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+          else
+            echo "environment=development" >> $GITHUB_OUTPUT
+          fi
+          
+          # Set Firebase project based on environment
+          case "$environment" in
+            production)
+              echo "firebase-project=tms062025" >> $GITHUB_OUTPUT
+              echo "deploy-url=https://tms062025.web.app" >> $GITHUB_OUTPUT
+              ;;
+            staging)
+              echo "firebase-project=tms062025-staging" >> $GITHUB_OUTPUT
+              echo "deploy-url=https://tms062025-staging.web.app" >> $GITHUB_OUTPUT
+              ;;
+            development)
+              echo "firebase-project=tms062025-dev" >> $GITHUB_OUTPUT
+              echo "deploy-url=https://tms062025-dev.web.app" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+  build:
+    name: 🏗️ Build Application
+    runs-on: ubuntu-latest
+    needs: determine-environment
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🔧 Set environment variables
+        run: |
+          echo "Building for environment: ${{ needs.determine-environment.outputs.environment }}"
+          echo "Firebase project: ${{ needs.determine-environment.outputs.firebase-project }}"
+
+      - name: 🏗️ Build Next.js application
+        run: npm run build
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_APP_ENV: ${{ needs.determine-environment.outputs.environment }}
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ needs.determine-environment.outputs.firebase-project }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID }}
+
+      - name: 📦 Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ needs.determine-environment.outputs.environment }}
+          path: |
+            .next/
+            out/
+            public/
+          retention-days: 7
+
+  deploy-hosting:
+    name: 🌐 Deploy to Firebase Hosting
+    runs-on: ubuntu-latest
+    needs: [determine-environment, build]
+    timeout-minutes: 10
+    environment: ${{ needs.determine-environment.outputs.environment }}
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-${{ needs.determine-environment.outputs.environment }}
+
+      - name: 🔧 Setup Firebase CLI
+        uses: w9jds/setup-firebase@main
+        with:
+          firebase_token: ${{ secrets.FIREBASE_TOKEN }}
+
+      - name: 🌐 Deploy to Firebase Hosting
+        run: |
+          firebase use ${{ needs.determine-environment.outputs.firebase-project }}
+          firebase deploy --only hosting --message "Deployed via GitHub Actions: ${{ github.sha }}"
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+      - name: 📝 Update deployment status
+        run: |
+          echo "🚀 Deployment successful!"
+          echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
+          echo "URL: ${{ needs.determine-environment.outputs.deploy-url }}"
+          echo "Commit: ${{ github.sha }}"
+
+  deploy-firestore-rules:
+    name: 🔒 Deploy Firestore Security Rules
+    runs-on: ubuntu-latest
+    needs: [determine-environment, deploy-hosting]
+    timeout-minutes: 5
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'production'
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Firebase CLI
+        uses: w9jds/setup-firebase@main
+        with:
+          firebase_token: ${{ secrets.FIREBASE_TOKEN }}
+
+      - name: 🔒 Deploy Firestore rules
+        run: |
+          firebase use ${{ needs.determine-environment.outputs.firebase-project }}
+          firebase deploy --only firestore:rules --message "Security rules update: ${{ github.sha }}"
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+  deploy-storage-rules:
+    name: 📁 Deploy Storage Security Rules
+    runs-on: ubuntu-latest
+    needs: [determine-environment, deploy-hosting]
+    timeout-minutes: 5
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'production'
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Firebase CLI
+        uses: w9jds/setup-firebase@main
+        with:
+          firebase_token: ${{ secrets.FIREBASE_TOKEN }}
+
+      - name: 📁 Deploy Storage rules
+        run: |
+          firebase use ${{ needs.determine-environment.outputs.firebase-project }}
+          firebase deploy --only storage --message "Storage rules update: ${{ github.sha }}"
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+  smoke-tests:
+    name: 💨 Post-Deployment Smoke Tests
+    runs-on: ubuntu-latest
+    needs: [determine-environment, deploy-hosting]
+    timeout-minutes: 10
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 💨 Run smoke tests
+        run: |
+          npm run test:smoke -- --url="${{ needs.determine-environment.outputs.deploy-url }}"
+        env:
+          DEPLOYMENT_URL: ${{ needs.determine-environment.outputs.deploy-url }}
+          ENVIRONMENT: ${{ needs.determine-environment.outputs.environment }}
+
+      - name: 📊 Upload smoke test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-test-results-${{ needs.determine-environment.outputs.environment }}
+          path: test-results/smoke/
+          retention-days: 3
+
+  rollback:
+    name: ↩️ Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: [determine-environment, deploy-hosting, smoke-tests]
+    if: failure() && (github.ref == 'refs/heads/main' || github.event.inputs.environment == 'production')
+    timeout-minutes: 5
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Firebase CLI
+        uses: w9jds/setup-firebase@main
+        with:
+          firebase_token: ${{ secrets.FIREBASE_TOKEN }}
+
+      - name: ↩️ Rollback deployment
+        run: |
+          firebase use ${{ needs.determine-environment.outputs.firebase-project }}
+          
+          # Get previous deployment
+          PREVIOUS_RELEASE=$(firebase hosting:sites:releases list --limit 2 --json | jq -r '.[1].name')
+          
+          if [ "$PREVIOUS_RELEASE" != "null" ]; then
+            echo "Rolling back to: $PREVIOUS_RELEASE"
+            firebase hosting:clone $PREVIOUS_RELEASE ${{ needs.determine-environment.outputs.firebase-project }}
+          else
+            echo "No previous release found for rollback"
+          fi
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+  notification:
+    name: 📢 Deployment Notification
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [determine-environment, deploy-hosting, smoke-tests]
+
+    steps:
+      - name: 📢 Success notification
+        if: ${{ needs.deploy-hosting.result == 'success' && needs.smoke-tests.result == 'success' }}
+        run: |
+          echo "✅ Deployment successful!"
+          echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
+          echo "URL: ${{ needs.determine-environment.outputs.deploy-url }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Deployed at: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+
+      - name: 📢 Failure notification
+        if: ${{ needs.deploy-hosting.result == 'failure' || needs.smoke-tests.result == 'failure' }}
+        run: |
+          echo "❌ Deployment failed!"
+          echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
+          echo "Please check the deployment logs and fix any issues."
+          echo "Commit: ${{ github.sha }}"
+          exit 1
+
+      - name: 💬 Comment on PR with deployment info
+        if: github.event_name == 'pull_request' && needs.deploy-hosting.result == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = `
+            ## 🚀 Deployment Preview
+            
+            Your changes have been deployed to the **${{ needs.determine-environment.outputs.environment }}** environment.
+            
+            **🔗 Preview URL:** [${{ needs.determine-environment.outputs.deploy-url }}](${{ needs.determine-environment.outputs.deploy-url }})
+            
+            **📊 Environment Details:**
+            - Environment: \`${{ needs.determine-environment.outputs.environment }}\`
+            - Firebase Project: \`${{ needs.determine-environment.outputs.firebase-project }}\`
+            - Commit: \`${{ github.sha }}\`
+            - Deployed: \`$(date -u +"%Y-%m-%d %H:%M:%S UTC")\`
+            
+            Please test your changes and verify everything works as expected.
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            }); 

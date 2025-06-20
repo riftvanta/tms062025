@@ -1,0 +1,250 @@
+name: 🚀 CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-checks:
+    name: 📋 Code Quality & Linting
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🔍 Lint with ESLint
+        run: npm run lint
+        continue-on-error: false
+
+      - name: 💅 Check code formatting with Prettier
+        run: npm run format:check
+        continue-on-error: false
+
+      - name: 🔧 TypeScript compilation check
+        run: npm run type-check
+        continue-on-error: false
+
+      - name: 📊 Upload lint results
+        uses: github/super-linter@v5
+        if: always()
+        env:
+          DEFAULT_BRANCH: main
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VALIDATE_TYPESCRIPT_ES: true
+          VALIDATE_JAVASCRIPT_ES: true
+          VALIDATE_CSS: true
+          VALIDATE_HTML: true
+
+  tests:
+    name: 🧪 Run Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: quality-checks
+
+    strategy:
+      matrix:
+        node-version: [18, 20]
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🧪 Run unit tests
+        run: npm run test:ci
+        env:
+          CI: true
+
+      - name: 🧪 Run integration tests
+        run: npm run test:integration
+        env:
+          CI: true
+
+      - name: 📊 Generate coverage report
+        run: npm run test:coverage
+
+      - name: 📈 Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+  build:
+    name: 🏗️ Build Application
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [quality-checks, tests]
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build Next.js application
+        run: npm run build
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID }}
+
+      - name: 📦 Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-files
+          path: |
+            .next/
+            out/
+          retention-days: 1
+
+      - name: 📊 Analyze bundle size
+        run: npm run analyze
+        continue-on-error: true
+
+  e2e-tests:
+    name: 🌐 End-to-End Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 📦 Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-files
+
+      - name: 🎭 Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: 🌐 Run Playwright tests
+        run: npm run test:e2e
+        env:
+          CI: true
+
+      - name: 📊 Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  mobile-tests:
+    name: 📱 Mobile & PWA Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 📦 Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-files
+
+      - name: 🌐 Start development server
+        run: npm start &
+        env:
+          PORT: 3000
+
+      - name: ⏳ Wait for server
+        run: npx wait-on http://localhost:3000
+
+      - name: 📱 Run mobile responsive tests
+        run: npm run test:mobile
+
+      - name: 🔍 PWA manifest validation
+        run: npm run test:pwa-manifest
+
+      - name: 📊 Upload mobile test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobile-test-results
+          path: test-results/mobile/
+          retention-days: 3
+
+  notification:
+    name: 📢 Notification
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [quality-checks, tests, build, e2e-tests, mobile-tests]
+
+    steps:
+      - name: 📢 Notify on success
+        if: ${{ needs.quality-checks.result == 'success' && needs.tests.result == 'success' && needs.build.result == 'success' }}
+        run: |
+          echo "✅ All CI checks passed successfully!"
+          echo "Build is ready for deployment."
+
+      - name: 📢 Notify on failure
+        if: ${{ needs.quality-checks.result == 'failure' || needs.tests.result == 'failure' || needs.build.result == 'failure' }}
+        run: |
+          echo "❌ CI pipeline failed!"
+          echo "Please check the logs and fix the issues."
+          exit 1 

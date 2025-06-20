@@ -1,0 +1,413 @@
+name: 📱 PWA Validation
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run daily at 4 AM UTC
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  pwa-audit:
+    name: 🔍 PWA Audit & Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build PWA
+        run: npm run build
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID }}
+
+      - name: 🌐 Start PWA server
+        run: npm start &
+        env:
+          PORT: 3000
+
+      - name: ⏳ Wait for server
+        run: npx wait-on http://localhost:3000 --timeout 60000
+
+      - name: 🔍 PWA Lighthouse audit
+        run: |
+          npx lighthouse http://localhost:3000 \
+            --preset=desktop \
+            --only-categories=pwa \
+            --output=json \
+            --output-path=./lighthouse-pwa-desktop.json \
+            --chrome-flags="--headless --no-sandbox"
+          
+          npx lighthouse http://localhost:3000 \
+            --preset=mobile \
+            --only-categories=pwa \
+            --output=json \
+            --output-path=./lighthouse-pwa-mobile.json \
+            --chrome-flags="--headless --no-sandbox"
+
+      - name: 📊 Validate PWA criteria
+        run: |
+          npm run test:pwa-criteria
+          npm run validate:manifest
+          npm run validate:service-worker
+
+      - name: 📈 Upload PWA audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: pwa-audit-results
+          path: |
+            lighthouse-pwa-*.json
+            pwa-validation-report.json
+          retention-days: 7
+
+  manifest-validation:
+    name: 📋 Web App Manifest Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: 📋 Validate web app manifest
+        run: |
+          npm run validate:manifest:schema
+          npm run validate:manifest:icons
+          npm run validate:manifest:completeness
+
+      - name: 📊 Generate manifest report
+        run: npm run generate:manifest-report
+
+      - name: 📈 Upload manifest validation results
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-validation
+          path: |
+            manifest-validation-report.json
+            manifest-errors.json
+          retention-days: 7
+
+  service-worker-tests:
+    name: ⚙️ Service Worker Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build with service worker
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: 🌐 Start server
+        run: npm start &
+        env:
+          PORT: 3000
+
+      - name: ⏳ Wait for server
+        run: npx wait-on http://localhost:3000
+
+      - name: ⚙️ Test service worker functionality
+        run: |
+          npm run test:service-worker:registration
+          npm run test:service-worker:caching
+          npm run test:service-worker:offline
+          npm run test:service-worker:update
+
+      - name: 📊 Generate service worker report
+        run: npm run generate:sw-report
+
+      - name: 📈 Upload service worker test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-worker-tests
+          path: |
+            service-worker-test-results.json
+            sw-coverage-report.json
+          retention-days: 7
+
+  mobile-device-testing:
+    name: 📱 Mobile Device PWA Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      matrix:
+        device: 
+          - name: 'iPhone 12'
+            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15'
+            viewport: '390x844'
+          - name: 'Samsung Galaxy S21'
+            userAgent: 'Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36'
+            viewport: '384x854'
+          - name: 'iPad Pro'
+            userAgent: 'Mozilla/5.0 (iPad; CPU OS 14_0 like Mac OS X) AppleWebKit/605.1.15'
+            viewport: '1024x1366'
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: 🌐 Start server
+        run: npm start &
+        env:
+          PORT: 3000
+
+      - name: ⏳ Wait for server
+        run: npx wait-on http://localhost:3000
+
+      - name: 🎭 Install Playwright
+        run: npx playwright install --with-deps
+
+      - name: 📱 Run device-specific PWA tests
+        run: |
+          npm run test:pwa:device -- \
+            --device="${{ matrix.device.name }}" \
+            --user-agent="${{ matrix.device.userAgent }}" \
+            --viewport="${{ matrix.device.viewport }}"
+        env:
+          DEVICE_NAME: ${{ matrix.device.name }}
+          USER_AGENT: ${{ matrix.device.userAgent }}
+          VIEWPORT: ${{ matrix.device.viewport }}
+
+      - name: 📊 Upload device test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-pwa-test-${{ matrix.device.name }}
+          path: |
+            test-results/pwa/
+            screenshots/
+          retention-days: 5
+
+  installability-tests:
+    name: 📲 PWA Installability Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: 🌐 Start server with HTTPS
+        run: |
+          # Generate self-signed certificate for HTTPS testing
+          openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj '/CN=localhost'
+          npm run start:https &
+        env:
+          PORT: 3000
+          HTTPS: true
+
+      - name: ⏳ Wait for HTTPS server
+        run: npx wait-on https://localhost:3000 --timeout 60000 --ignore-https-errors
+
+      - name: 📲 Test install prompt
+        run: |
+          npm run test:install-prompt
+          npm run test:install-criteria
+          npm run test:beforeinstallprompt
+
+      - name: 🔍 Test PWA install banner
+        run: npm run test:install-banner
+
+      - name: 📊 Generate installability report
+        run: npm run generate:installability-report
+
+      - name: 📈 Upload installability test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: installability-tests
+          path: |
+            installability-report.json
+            install-test-screenshots/
+          retention-days: 7
+
+  offline-functionality:
+    name: 🔌 Offline Functionality Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 📚 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: 🌐 Start server
+        run: npm start &
+        env:
+          PORT: 3000
+
+      - name: ⏳ Wait for server
+        run: npx wait-on http://localhost:3000
+
+      - name: 🎭 Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: 🔌 Test offline functionality
+        run: |
+          npm run test:offline:navigation
+          npm run test:offline:caching
+          npm run test:offline:fallback
+          npm run test:offline:sync
+
+      - name: 📊 Generate offline functionality report
+        run: npm run generate:offline-report
+
+      - name: 📈 Upload offline test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-functionality-tests
+          path: |
+            offline-test-results.json
+            offline-screenshots/
+          retention-days: 7
+
+  notification:
+    name: 📢 PWA Validation Notification
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [pwa-audit, manifest-validation, service-worker-tests, mobile-device-testing, installability-tests, offline-functionality]
+
+    steps:
+      - name: 📊 PWA validation summary
+        run: |
+          echo "📱 PWA Validation Results:"
+          echo "PWA Audit: ${{ needs.pwa-audit.result }}"
+          echo "Manifest: ${{ needs.manifest-validation.result }}"
+          echo "Service Worker: ${{ needs.service-worker-tests.result }}"
+          echo "Mobile Devices: ${{ needs.mobile-device-testing.result }}"
+          echo "Installability: ${{ needs.installability-tests.result }}"
+          echo "Offline: ${{ needs.offline-functionality.result }}"
+
+      - name: 💬 Comment PWA validation results on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const results = {
+              audit: '${{ needs.pwa-audit.result }}',
+              manifest: '${{ needs.manifest-validation.result }}',
+              serviceWorker: '${{ needs.service-worker-tests.result }}',
+              mobileDevices: '${{ needs.mobile-device-testing.result }}',
+              installability: '${{ needs.installability-tests.result }}',
+              offline: '${{ needs.offline-functionality.result }}'
+            };
+            
+            const getEmoji = (result) => result === 'success' ? '✅' : '❌';
+            
+            const comment = `
+            ## 📱 PWA Validation Report
+            
+            | Test Category | Status | Result |
+            |---------------|--------|---------|
+            | PWA Audit | ${getEmoji(results.audit)} | ${results.audit} |
+            | Manifest Validation | ${getEmoji(results.manifest)} | ${results.manifest} |
+            | Service Worker | ${getEmoji(results.serviceWorker)} | ${results.serviceWorker} |
+            | Mobile Device Testing | ${getEmoji(results.mobileDevices)} | ${results.mobileDevices} |
+            | Installability | ${getEmoji(results.installability)} | ${results.installability} |
+            | Offline Functionality | ${getEmoji(results.offline)} | ${results.offline} |
+            
+            ${Object.values(results).every(r => r === 'success') ? 
+              '🎉 All PWA validation tests passed! Your app is ready for mobile deployment.' : 
+              '⚠️ Some PWA validation tests failed. Please review the test results and fix any issues.'}
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: 🚨 Alert on PWA validation failures
+        if: ${{ needs.pwa-audit.result == 'failure' || needs.installability-tests.result == 'failure' || needs.offline-functionality.result == 'failure' }}
+        run: |
+          echo "🚨 CRITICAL PWA VALIDATION FAILURES!"
+          echo "Your PWA may not function correctly on mobile devices."
+          echo "Please review the validation reports and fix all issues."
+          exit 1 
