@@ -1,0 +1,88 @@
+// Firebase Storage Rules for Financial Transfer Management System
+// Phase 3: Database Schema & Models Implementation
+
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+             exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+             get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function isExchange() {
+      return isAuthenticated() && 
+             exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+             get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'exchange';
+    }
+    
+    function isActiveUser() {
+      return isAuthenticated() && 
+             exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+             get(/databases/(default)/documents/users/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function isValidImageFile() {
+      return resource.contentType.matches('image/.*') &&
+             resource.size <= 5 * 1024 * 1024; // 5MB limit
+    }
+
+    function isOwnerOfOrder(orderId) {
+      return exists(/databases/(default)/documents/orders/$(orderId)) &&
+             get(/databases/(default)/documents/orders/$(orderId)).data.exchangeId == request.auth.uid;
+    }
+
+    // Order screenshots uploads
+    match /orders/{orderId}/screenshots/{fileName} {
+      // Allow upload if user is active and either admin or owns the order
+      allow write: if isActiveUser() && 
+                     isValidImageFile() &&
+                     (isAdmin() || isOwnerOfOrder(orderId));
+      
+      // Allow read if user is active and either admin or owns the order
+      allow read: if isActiveUser() && 
+                    (isAdmin() || isOwnerOfOrder(orderId));
+      
+      // Allow delete only for admins
+      allow delete: if isAdmin();
+    }
+
+    // General file uploads (for other purposes)
+    match /uploads/{userId}/{fileName} {
+      // Users can upload files to their own directory
+      allow write: if isActiveUser() && 
+                     request.auth.uid == userId &&
+                     isValidImageFile();
+      
+      // Users can read their own files, admins can read all
+      allow read: if isActiveUser() && 
+                    (request.auth.uid == userId || isAdmin());
+      
+      // Users can delete their own files, admins can delete all
+      allow delete: if isActiveUser() && 
+                      (request.auth.uid == userId || isAdmin());
+    }
+
+    // Admin-only files
+    match /admin/{allPaths=**} {
+      allow read, write, delete: if isAdmin();
+    }
+
+    // Public files (if any)
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write, delete: if isAdmin();
+    }
+
+    // Block all other access
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+} 

@@ -1,0 +1,190 @@
+// Firestore Security Rules for Financial Transfer Management System
+// Phase 3: Database Schema & Models Implementation
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function isExchange() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'exchange';
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isActiveUser() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active';
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      // Only admins can create new users (no public registration)
+      allow create: if isAdmin();
+      
+      // Users can read their own data, admins can read all
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Users can update their own data (limited fields), admins can update all
+      allow update: if (isOwner(userId) && isActiveUser() && 
+                       onlyUpdatingFields(['contactInfo', 'updatedAt'])) ||
+                      isAdmin();
+      
+      // Only admins can delete users
+      allow delete: if isAdmin();
+      
+      // List users (admin only)
+      allow list: if isAdmin();
+    }
+
+    // Orders Collection
+    match /orders/{orderId} {
+      // Exchanges can create orders, admins can create orders
+      allow create: if (isExchange() && isActiveUser() && 
+                       resource.data.exchangeId == request.auth.uid) ||
+                      isAdmin();
+      
+      // Users can read their own orders, admins can read all
+      allow read: if (isExchange() && isActiveUser() && 
+                     resource.data.exchangeId == request.auth.uid) ||
+                    isAdmin();
+      
+      // Exchanges can update their own orders (limited fields and statuses)
+      // Admins can update all orders
+      allow update: if (isExchange() && isActiveUser() && 
+                       resource.data.exchangeId == request.auth.uid &&
+                       exchangeCanUpdateOrder()) ||
+                      isAdmin();
+      
+      // Only admins can delete orders
+      allow delete: if isAdmin();
+      
+      // List orders
+      allow list: if isAdmin() || (isExchange() && isActiveUser());
+    }
+
+    // Platform Banks Collection
+    match /platformBanks/{bankId} {
+      // Only admins can manage platform banks
+      allow create, update, delete: if isAdmin();
+      
+      // Admins and active exchanges can read banks
+      allow read: if isAdmin() || (isExchange() && isActiveUser());
+      
+      // List banks
+      allow list: if isAdmin() || (isExchange() && isActiveUser());
+    }
+
+    // Bank Assignments Collection
+    match /bankAssignments/{assignmentId} {
+      // Only admins can manage bank assignments
+      allow create, update, delete: if isAdmin();
+      
+      // Admins can read all, exchanges can read their own assignments
+      allow read: if isAdmin() || 
+                    (isExchange() && isActiveUser() && 
+                     resource.data.exchangeId == request.auth.uid);
+      
+      // List assignments
+      allow list: if isAdmin() || (isExchange() && isActiveUser());
+    }
+
+    // Messages Collection
+    match /messages/{messageId} {
+      // Users can create messages for orders they're involved in
+      allow create: if isActiveUser() && 
+                      (canSendMessageToOrder(resource.data.orderId) &&
+                       resource.data.senderId == request.auth.uid);
+      
+      // Users can read messages for orders they're involved in
+      allow read: if isActiveUser() && canReadMessageFromOrder(resource.data.orderId);
+      
+      // Users can update their own messages (mark as read)
+      allow update: if isActiveUser() && 
+                      canReadMessageFromOrder(resource.data.orderId) &&
+                      onlyUpdatingFields(['isRead']);
+      
+      // Only admins can delete messages
+      allow delete: if isAdmin();
+      
+      // List messages for specific orders
+      allow list: if isActiveUser();
+    }
+
+    // Counters Collection (for order ID generation)
+    match /counters/{counterId} {
+      // Only the system can manage counters
+      allow read, write: if isAdmin();
+    }
+
+    // File metadata collection (if using Firestore for file tracking)
+    match /files/{fileId} {
+      // Users can create file records for their own uploads
+      allow create: if isActiveUser() && 
+                      resource.data.uploadedBy == request.auth.uid;
+      
+      // Users can read file records they have access to
+      allow read: if isActiveUser() && canAccessFile(resource.data);
+      
+      // Only file owners and admins can update
+      allow update: if (isActiveUser() && resource.data.uploadedBy == request.auth.uid) ||
+                      isAdmin();
+      
+      // Only admins can delete file records
+      allow delete: if isAdmin();
+      
+      // List files
+      allow list: if isActiveUser();
+    }
+
+    // Helper functions for complex rules
+    function onlyUpdatingFields(allowedFields) {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(allowedFields);
+    }
+
+    function exchangeCanUpdateOrder() {
+      let allowedStatuses = ['submitted', 'pending_review'];
+      let allowedFields = ['submittedAmount', 'cliqDetails', 'recipientDetails', 
+                          'bankUsed', 'screenshots', 'senderName', 'timestamps.updated'];
+      
+      return resource.data.status in allowedStatuses &&
+             onlyUpdatingFields(allowedFields);
+    }
+
+    function canSendMessageToOrder(orderId) {
+      return exists(/databases/$(database)/documents/orders/$(orderId)) &&
+             (isAdmin() || 
+              get(/databases/$(database)/documents/orders/$(orderId)).data.exchangeId == request.auth.uid);
+    }
+
+    function canReadMessageFromOrder(orderId) {
+      return exists(/databases/$(database)/documents/orders/$(orderId)) &&
+             (isAdmin() || 
+              get(/databases/$(database)/documents/orders/$(orderId)).data.exchangeId == request.auth.uid);
+    }
+
+    function canAccessFile(fileData) {
+      return isAdmin() || 
+             fileData.uploadedBy == request.auth.uid ||
+             (fileData.orderId != null && 
+              exists(/databases/$(database)/documents/orders/$(fileData.orderId)) &&
+              get(/databases/$(database)/documents/orders/$(fileData.orderId)).data.exchangeId == request.auth.uid);
+    }
+  }
+} 
