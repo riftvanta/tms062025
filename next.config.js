@@ -3,14 +3,7 @@ const nextConfig = {
   // Enable React strict mode for better development experience
   reactStrictMode: true,
 
-  // Enable SWC minification for better performance
-  swcMinify: true,
-
   // Mobile-first optimization
-  experimental: {
-    // Enable modern bundling for better mobile performance
-    bundlePagesRouterDependencies: true,
-  },
 
   // Image optimization settings
   images: {

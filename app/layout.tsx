@@ -4,19 +4,20 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'TMS - Transfer Management System',
   description: 'Financial Transfer Management System for Exchange Offices',
-  viewport: {
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
-  },
-  themeColor: '#2563eb',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
     title: 'TMS App',
   },
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: '#2563eb',
 };
 
 export default function RootLayout({

@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 export default function HomePage() {
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
@@ -15,12 +17,12 @@ export default function HomePage() {
               Financial Transfer Management System for secure transactions between our company and exchange office partners.
             </p>
             <div className="space-y-3">
-              <button className="btn-primary w-full">
-                Admin Login
-              </button>
-              <button className="btn-secondary w-full">
-                Exchange Login
-              </button>
+              <Link href="/login" className="btn-primary w-full block">
+                Login
+              </Link>
+              <p className="text-xs text-gray-500 mt-2">
+                Admin and Exchange Portal Access
+              </p>
             </div>
           </div>
         </div>
