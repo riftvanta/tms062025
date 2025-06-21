@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { AuthProvider } from '@/contexts/AuthContext';
 
 export const metadata: Metadata = {
   title: 'TMS - Transfer Management System',
@@ -37,9 +38,11 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
       <body className="min-h-screen bg-gray-50">
-        <div id="root" className="min-h-screen">
-          {children}
-        </div>
+        <AuthProvider>
+          <div id="root" className="min-h-screen">
+            {children}
+          </div>
+        </AuthProvider>
       </body>
     </html>
   );

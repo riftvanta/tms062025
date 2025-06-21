@@ -20,7 +20,7 @@ export async function verifyPassword(password: string, hashedPassword: string): 
   return bcrypt.compare(password, hashedPassword);
 }
 
-export function generateToken(user: User): string {
+export function generateToken(user: Pick<User, 'id' | 'username' | 'role' | 'exchangeName'>): string {
   const payload: AuthToken = {
     userId: user.id,
     username: user.username,
